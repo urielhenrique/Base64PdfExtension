@@ -1,0 +1,54 @@
+# Build artifacts
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# Visual Studio
+.vs/
+*.sln.docstates
+*.csproj.user
+
+# ReSharper
+_ReSharper*/
+*.DotSettings.user
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp files
+*.tmp
+*.temp
+*.log
+*.cache
+
+# OutSystems
+*.xif.bak
+*.oml.bak
+
+# IDE
+*.swp
+*~
+.vscode/
+.idea/
+
+# Documentation output
+*.pdf
+*.docx
+
+# Keep these
+!docs/*.pdf
+!docs/*.md
