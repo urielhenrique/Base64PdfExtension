@@ -101,7 +101,7 @@ namespace OutSystems.NssBase64PdfExtension {
 		/// <param name="ssFileBinary">Output file binary</param>
 		/// <param name="ssMimeType">Output MIME type</param>
 		/// <param name="ssFileExtension">Output file extension</param>
-		public void MssConvertBinaryToPdf(byte[] ssBinaryData, out byte[] ssFileBinary, out string ssMimeType, out string ssFileExtension) {
+		public void MssConvertBinaryToPdf(byte[] ssBinaryData, out string ssFileExtension, out string ssMimeType, out byte[] ssFileBinary) {
 			ssFileBinary = new byte[] {};
 			ssMimeType = "";
 			ssFileExtension = "";
@@ -148,18 +148,18 @@ namespace OutSystems.NssBase64PdfExtension {
 			// PNG
 			if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
 			{
-				ssFileBinary = bytes;
-				ssMimeType = "image/png";
-				ssFileExtension = ".png";
+				ssFileBinary = ConvertImageToPdf(bytes);
+				ssMimeType = "application/pdf";
+				ssFileExtension = ".pdf";
 				return;
 			}
 
 			// JPEG
 			if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
 			{
-				ssFileBinary = bytes;
-				ssMimeType = "image/jpeg";
-				ssFileExtension = ".jpg";
+				ssFileBinary = ConvertImageToPdf(bytes);
+				ssMimeType = "application/pdf";
+				ssFileExtension = ".pdf";
 				return;
 			}
 
@@ -420,12 +420,28 @@ namespace OutSystems.NssBase64PdfExtension {
 				// Calcula bounds do desenho
 				var bounds = CalculateCadBounds(cadDoc);
 
-				// Cria documento PDF
+				// Calcula dimensões em pontos (72 pontos = 1 polegada = 25.4mm)
+				float widthInPoints = (float)bounds.Width * 72f / 25.4f;
+				float heightInPoints = (float)bounds.Height * 72f / 25.4f;
+
+				// PDF tem limite máximo de 14400 x 14400 pontos
+				// Se exceder, escala proporcionalmente
+				const float MAX_PDF_SIZE = 14400f;
+				float scale = 1.0f;
+
+				if (widthInPoints > MAX_PDF_SIZE || heightInPoints > MAX_PDF_SIZE)
+				{
+					float scaleWidth = MAX_PDF_SIZE / widthInPoints;
+					float scaleHeight = MAX_PDF_SIZE / heightInPoints;
+					scale = Math.Min(scaleWidth, scaleHeight);
+
+					widthInPoints *= scale;
+					heightInPoints *= scale;
+				}
+
+				// Cria documento PDF com dimensões ajustadas
 				Document pdfDoc = new Document(
-					new iTextSharp.text.Rectangle(
-						(float)bounds.Width * 72f / 25.4f,  // Converte mm para pontos
-						(float)bounds.Height * 72f / 25.4f
-					)
+					new iTextSharp.text.Rectangle(widthInPoints, heightInPoints)
 				);
 
 				PdfWriter writer = PdfWriter.GetInstance(pdfDoc, msPdf);
@@ -434,8 +450,8 @@ namespace OutSystems.NssBase64PdfExtension {
 				// Cria canvas para desenhar
 				PdfContentByte canvas = writer.DirectContent;
 
-				// Renderiza entidades CAD
-				RenderCadEntities(cadDoc, canvas, bounds);
+				// Renderiza entidades CAD com escala aplicada
+				RenderCadEntities(cadDoc, canvas, bounds, scale);
 
 				pdfDoc.Close();
 				return msPdf.ToArray();
@@ -452,12 +468,27 @@ namespace OutSystems.NssBase64PdfExtension {
 				// Calcula bounds
 				var bounds = CalculateNetDxfBounds(dxfDoc);
 
+				// Calcula dimensões em pontos
+				float widthInPoints = (float)bounds.Width * 72f / 25.4f;
+				float heightInPoints = (float)bounds.Height * 72f / 25.4f;
+
+				// Aplica limite máximo do PDF
+				const float MAX_PDF_SIZE = 14400f;
+				float scale = 1.0f;
+
+				if (widthInPoints > MAX_PDF_SIZE || heightInPoints > MAX_PDF_SIZE)
+				{
+					float scaleWidth = MAX_PDF_SIZE / widthInPoints;
+					float scaleHeight = MAX_PDF_SIZE / heightInPoints;
+					scale = Math.Min(scaleWidth, scaleHeight);
+
+					widthInPoints *= scale;
+					heightInPoints *= scale;
+				}
+
 				// Cria documento PDF
 				Document pdfDoc = new Document(
-					new iTextSharp.text.Rectangle(
-						(float)bounds.Width * 72f / 25.4f,
-						(float)bounds.Height * 72f / 25.4f
-					)
+					new iTextSharp.text.Rectangle(widthInPoints, heightInPoints)
 				);
 
 				PdfWriter writer = PdfWriter.GetInstance(pdfDoc, msPdf);
@@ -465,8 +496,8 @@ namespace OutSystems.NssBase64PdfExtension {
 
 				PdfContentByte canvas = writer.DirectContent;
 
-				// Renderiza entidades
-				RenderNetDxfEntities(dxfDoc, canvas, bounds);
+				// Renderiza entidades com escala
+				RenderNetDxfEntities(dxfDoc, canvas, bounds, scale);
 
 				pdfDoc.Close();
 				return msPdf.ToArray();
@@ -541,10 +572,10 @@ namespace OutSystems.NssBase64PdfExtension {
 		/// Renderiza entidades CAD no canvas PDF (implementação básica)
 		/// </summary>
 		private void RenderCadEntities(CadDocument doc, PdfContentByte canvas, 
-			(double MinX, double MinY, double MaxX, double MaxY, double Width, double Height) bounds)
+			(double MinX, double MinY, double MaxX, double MaxY, double Width, double Height) bounds, float scale = 1.0f)
 		{
 			// Implementação básica - renderiza linhas
-			canvas.SetLineWidth(0.5f);
+			canvas.SetLineWidth(0.5f * scale);
 
 			foreach (var entity in doc.Entities)
 			{
@@ -564,17 +595,17 @@ namespace OutSystems.NssBase64PdfExtension {
 		/// Renderiza entidades netDxf no canvas PDF
 		/// </summary>
 		private void RenderNetDxfEntities(DxfDocument doc, PdfContentByte canvas,
-			(double MinX, double MinY, double MaxX, double MaxY, double Width, double Height) bounds)
+			(double MinX, double MinY, double MaxX, double MaxY, double Width, double Height) bounds, float pdfScale = 1.0f)
 		{
-			canvas.SetLineWidth(0.5f);
-			double scale = 72.0 / 25.4; // mm para pontos
+			canvas.SetLineWidth(0.5f * pdfScale);
+			double coordScale = 72.0 / 25.4 * pdfScale; // mm para pontos com escala PDF aplicada
 
 			foreach (var entity in doc.Entities.Lines)
 			{
-				float x1 = (float)((entity.StartPoint.X - bounds.MinX) * scale);
-				float y1 = (float)((entity.StartPoint.Y - bounds.MinY) * scale);
-				float x2 = (float)((entity.EndPoint.X - bounds.MinX) * scale);
-				float y2 = (float)((entity.EndPoint.Y - bounds.MinY) * scale);
+				float x1 = (float)((entity.StartPoint.X - bounds.MinX) * coordScale);
+				float y1 = (float)((entity.StartPoint.Y - bounds.MinY) * coordScale);
+				float x2 = (float)((entity.EndPoint.X - bounds.MinX) * coordScale);
+				float y2 = (float)((entity.EndPoint.Y - bounds.MinY) * coordScale);
 
 				canvas.MoveTo(x1, y1);
 				canvas.LineTo(x2, y2);
@@ -609,6 +640,36 @@ namespace OutSystems.NssBase64PdfExtension {
 						doc.Add(pdfImage);
 					}
 
+					doc.Close();
+				}
+
+				return msPdf.ToArray();
+			}
+		}
+
+		/// <summary>
+		/// Converte imagens (PNG, JPEG, GIF) para PDF
+		/// </summary>
+		private byte[] ConvertImageToPdf(byte[] imageBytes)
+		{
+			using (MemoryStream msImage = new MemoryStream(imageBytes))
+			using (MemoryStream msPdf = new MemoryStream())
+			{
+				using (System.Drawing.Image img = System.Drawing.Image.FromStream(msImage))
+				{
+					// Cria documento PDF com tamanho da imagem
+					Document doc = new Document(
+						new iTextSharp.text.Rectangle(img.Width, img.Height));
+
+					PdfWriter.GetInstance(doc, msPdf);
+					doc.Open();
+
+					// Converte imagem para formato compatível com iTextSharp
+					iTextSharp.text.Image pdfImage = iTextSharp.text.Image.GetInstance(imageBytes);
+					pdfImage.SetAbsolutePosition(0, 0);
+					pdfImage.ScaleToFit(img.Width, img.Height);
+
+					doc.Add(pdfImage);
 					doc.Close();
 				}
 
